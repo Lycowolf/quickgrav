@@ -1,6 +1,6 @@
 [package]
 name = "quickgrav"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Lyco <zdenek.belehradek@seznam.cz>"]
 edition = "2018"
 
