@@ -1,3 +1,4 @@
+#[windows_subsystem = "windows"]
 extern crate quicksilver;
 
 use quicksilver::prelude::*;
