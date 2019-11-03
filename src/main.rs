@@ -106,7 +106,7 @@ impl State for Space {
 
         if status_text_changed || self.status_text_img.is_none() {
             let paused = self.paused;
-            let style = FontStyle::new(12.0, Color::WHITE);
+            let style = FontStyle::new(16.0, Color::WHITE);
             let text = format!("Controls: <+/-> change timestep, <space> pause\nPaused: {}\nTime step: {}", paused, self.time_step);
             let mut img: Option<Image> = None;
             self.font.execute(|font| {
