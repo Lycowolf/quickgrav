@@ -96,18 +96,21 @@ impl State for Space {
                 };
             }
             Event::Key(Key::F1, ButtonState::Pressed) => {
+                self.planets = default_space::get_planets()
+            }
+            Event::Key(Key::F2, ButtonState::Pressed) => {
                 self.planets = match from_slice(load_file("system1.json").wait().expect("Can't load system 1").as_slice()) {
                     Ok(planets) => planets,
                     _ => default_space::get_planets(),
                 };
             }
-            Event::Key(Key::F2, ButtonState::Pressed) => {
+            Event::Key(Key::F3, ButtonState::Pressed) => {
                 self.planets = match from_slice(load_file("system2.json").wait().expect("Can't load system 2").as_slice()) {
                     Ok(planets) => planets,
                     _ => default_space::get_planets(),
                 };
             }
-            Event::Key(Key::F3, ButtonState::Pressed) => {
+            Event::Key(Key::F4, ButtonState::Pressed) => {
                 self.planets = match from_slice(load_file("system3.json").wait().expect("Can't load system 3").as_slice()) {
                     Ok(planets) => planets,
                     _ => default_space::get_planets(),
@@ -121,7 +124,7 @@ impl State for Space {
             let style = FontStyle::new(16.0, Color::WHITE);
             let text = format!(
                 "Controls: <+ -> change update rate, <space> pause, </ *> change time step, <S> save, <L> load\n\
-                Sample systems: <F1> stable, with moon <F2> stable in L5 point, <F3> Binary star
+                Sample systems: <F1> default, unstable <F2> stable, with moon <F3> stable in L5 point, <F4> Binary star
                 \n\
                 Paused: {}\n\
                 Simulation time step: {}\n\
