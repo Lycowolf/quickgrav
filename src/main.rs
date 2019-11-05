@@ -162,17 +162,18 @@ fn integrate(time_step: f32, planets: &Vec<Planet>) -> Vec<Planet> {
     */
     let mut new_planets: Vec<Planet> = Vec::new();
     for (ii, planet) in planets.iter().enumerate() {
-        let mut force: Vector = Vector::new(0, 0);
-        for (jj, curr_planet) in planets.iter().enumerate() {
+        let mut acceleration: Vector = Vector::new(0, 0);
+        for (jj, other_planet) in planets.iter().enumerate() {
             if ii != jj {
-                let distance = curr_planet.position - planet.position;
-                let force_size = planet.mass * curr_planet.mass / distance.len2();
-                force += distance.normalize() * force_size;
+                let distance = other_planet.position - planet.position;
+                let acceleration_size = other_planet.mass / distance.len2();
+                acceleration += distance.normalize() * acceleration_size;
             }
         }
+        let new_velocity = planet.velocity + acceleration * time_step;
         let new_planet = Planet {
-            velocity: planet.velocity + (force / planet.mass) * time_step,
-            position: planet.position + planet.velocity * time_step,
+            velocity: new_velocity,
+            position: planet.position + new_velocity * time_step,
             mass: planet.mass,
             color: planet.color,
         };
