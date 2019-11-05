@@ -150,7 +150,11 @@ impl State for Space {
     }
 
     fn draw(&mut self, window: &mut Window) -> Result<()> {
-        let upper_left = self.planets[0].position - Vector::new(WIDTH / 2.0, HEIGHT / 2.0);
+        let barycenter = self.planets.iter()
+            .fold(Vector::new(0, 0), |sum, planet| {sum + planet.position * planet.mass})
+            * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>());
+        let upper_left = barycenter - Vector::new(WIDTH / 2.0, HEIGHT / 2.0);
+
         window.set_view(View::new(Rectangle::new(upper_left, Vector::new(WIDTH, HEIGHT))));
 
         // background
