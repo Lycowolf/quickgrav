@@ -5,6 +5,7 @@ use quicksilver::prelude::*;
 use std::ops::Index;
 use quicksilver::graphics::View;
 use serde_derive::*;
+use serde_json::from_slice;
 use quicksilver::saving::{save, load};
 
 mod default_space;
@@ -20,7 +21,8 @@ const DEFAULT_UPDATE_RATE: f64 = 0.01; // misnomer: it's delay between updates
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Planet {
     position: Vector,
-    velocity: Vector, // per tick
+    velocity: Vector,
+    // per tick
     mass: f32,
     color: Color,
 }
@@ -64,8 +66,8 @@ impl State for Space {
 
         match event {
             Event::Key(Key::Space, ButtonState::Pressed) => {
-                    status_text_changed = true;
-                    self.paused = !self.paused;
+                status_text_changed = true;
+                self.paused = !self.paused;
             }
             Event::Key(Key::Multiply, ButtonState::Pressed) => {
                 status_text_changed = true;
@@ -91,7 +93,25 @@ impl State for Space {
                 self.planets = match load::<Vec<Planet>>(APP_NAME, SAVE_PROFILE) {
                     Ok(planets) => planets,
                     _ => default_space::get_planets(),
-        };
+                };
+            }
+            Event::Key(Key::F1, ButtonState::Pressed) => {
+                self.planets = match from_slice(load_file("system1.json").wait().expect("Can't load system 1").as_slice()) {
+                    Ok(planets) => planets,
+                    _ => default_space::get_planets(),
+                };
+            }
+            Event::Key(Key::F2, ButtonState::Pressed) => {
+                self.planets = match from_slice(load_file("system2.json").wait().expect("Can't load system 2").as_slice()) {
+                    Ok(planets) => planets,
+                    _ => default_space::get_planets(),
+                };
+            }
+            Event::Key(Key::F3, ButtonState::Pressed) => {
+                self.planets = match from_slice(load_file("system3.json").wait().expect("Can't load system 3").as_slice()) {
+                    Ok(planets) => planets,
+                    _ => default_space::get_planets(),
+                };
             }
             _ => ()
         }
@@ -101,6 +121,8 @@ impl State for Space {
             let style = FontStyle::new(16.0, Color::WHITE);
             let text = format!(
                 "Controls: <+ -> change update rate, <space> pause, </ *> change time step, <S> save, <L> load\n\
+                Sample systems: <F1> stable, with moon <F2> stable in L5 point, <F3> Binary star
+                \n\
                 Paused: {}\n\
                 Simulation time step: {}\n\
                 Update rate: {} updates/sec",
@@ -115,7 +137,7 @@ impl State for Space {
                         img = Some(image);
                         Ok(())
                     }
-                    Err(error) => { return Err(error) }
+                    Err(error) => { return Err(error); }
                 }
             }).expect("Can't get rendered status text");
             self.status_text_img = img;
