@@ -4,16 +4,23 @@ extern crate quicksilver;
 use quicksilver::prelude::*;
 use std::ops::Index;
 use quicksilver::graphics::View;
+use serde_derive::*;
+use quicksilver::saving::{save, load};
+
+mod default_space;
 
 const WIDTH: f32 = 1200.0;
 const HEIGHT: f32 = 900.0;
+const APP_NAME: &str = "QuickGrav";
+const SAVE_PROFILE: &str = "profile1";
+const DEFAULT_TIME_STEP: f32 = 0.001;
+const DEFAULT_UPDATE_RATE: f64 = 0.01; // misnomer: it's delay between updates
 
 
-#[derive(Clone, Copy, Debug)]
-struct Planet {
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Planet {
     position: Vector,
-    velocity: Vector,
-    // per tick
+    velocity: Vector, // per tick
     mass: f32,
     color: Color,
 }
@@ -28,87 +35,79 @@ struct Space {
 
 impl State for Space {
     fn new() -> Result<Space> {
-        let mut planets: Vec<Planet> = Vec::new();
-
-        let planet = Planet {
-            position: Vector::new(0, 0),
-            velocity: Vector::new(0, 0),
-            mass: 200.0,
-            color: Color::RED,
+        let planets = match load::<Vec<Planet>>(APP_NAME, SAVE_PROFILE) {
+            Ok(planets) => planets,
+            _ => default_space::get_planets(),
         };
-        planets.push(planet);
-
-        let planet = Planet {
-            position: Vector::new(100, 0),
-            velocity: Vector::new(0, 1.3),
-            mass: 5.0,
-            color: Color::GREEN,
-        };
-        planets.push(planet);
-
-        let planet = Planet {
-            position: Vector::new(200, 0),
-            velocity: Vector::new(0, 1.1),
-            mass: 2.0,
-            color: Color::BLUE,
-        };
-        planets.push(planet);
-
-        let planet = Planet {
-            position: Vector::new(300, 0),
-            velocity: Vector::new(0, 0.9),
-            mass: 2.0,
-            color: Color::CYAN,
-        };
-        planets.push(planet);
 
         let font = Asset::new(Font::load("FiraCode-Medium.ttf"));
 
         Ok(Space {
             planets,
             paused: true,
-            time_step: 0.02,
+            time_step: DEFAULT_TIME_STEP,
             font,
             status_text_img: Option::None,
         }
         )
     }
 
-    fn update(&mut self, window: &mut Window) -> Result<()> {
-        let mut status_text_changed = false;
-
-        self.paused = match window.keyboard()[Key::Space] {
-            ButtonState::Pressed => {
-                status_text_changed = true;
-                !self.paused
-            }
-            _ => self.paused,
-        };
-
-        self.time_step = match window.keyboard()[Key::Add] {
-            ButtonState::Pressed => {
-                status_text_changed = true;
-                self.time_step * 2.0
-            }
-            _ => self.time_step,
-        };
-
-        self.time_step = match window.keyboard()[Key::Subtract] {
-            ButtonState::Pressed => {
-                status_text_changed = true;
-                self.time_step / 2.0
-            }
-            _ => self.time_step,
-        };
-
+    fn update(&mut self, _window: &mut Window) -> Result<()> {
         if !self.paused {
             self.planets = integrate(self.time_step, &self.planets);
+        }
+        Ok(())
+    }
+
+    fn event(&mut self, event: &Event, window: &mut Window) -> Result<()> {
+        let mut status_text_changed = false;
+
+        match event {
+            Event::Key(Key::Space, ButtonState::Pressed) => {
+                    status_text_changed = true;
+                    self.paused = !self.paused;
+            }
+            Event::Key(Key::Multiply, ButtonState::Pressed) => {
+                status_text_changed = true;
+                self.time_step *= 2.0;
+            }
+            Event::Key(Key::Divide, ButtonState::Pressed) => {
+                status_text_changed = true;
+                self.time_step /= 2.0;
+            }
+            // Add => faster simulation => smaller update rate (update delay)
+            Event::Key(Key::Add, ButtonState::Pressed) => {
+                status_text_changed = true;
+                window.set_update_rate(window.update_rate() / 2.0);
+            }
+            Event::Key(Key::Subtract, ButtonState::Pressed) => {
+                status_text_changed = true;
+                window.set_update_rate(window.update_rate() * 2.0);
+            }
+            Event::Key(Key::S, ButtonState::Pressed) => {
+                save(APP_NAME, SAVE_PROFILE, &self.planets).expect("Can't save planet data");
+            }
+            Event::Key(Key::L, ButtonState::Pressed) => {
+                self.planets = match load::<Vec<Planet>>(APP_NAME, SAVE_PROFILE) {
+                    Ok(planets) => planets,
+                    _ => default_space::get_planets(),
+        };
+            }
+            _ => ()
         }
 
         if status_text_changed || self.status_text_img.is_none() {
             let paused = self.paused;
             let style = FontStyle::new(16.0, Color::WHITE);
-            let text = format!("Controls: <+/-> change timestep, <space> pause\nPaused: {}\nTime step: {}", paused, self.time_step);
+            let text = format!(
+                "Controls: <+ -> change update rate, <space> pause, </ *> change time step, <S> save, <L> load\n\
+                Paused: {}\n\
+                Simulation time step: {}\n\
+                Update rate: {} updates/sec",
+                paused,
+                self.time_step,
+                1000.0 / window.update_rate()
+            );
             let mut img: Option<Image> = None;
             self.font.execute(|font| {
                 match font.render(&text, &style) {
@@ -116,7 +115,7 @@ impl State for Space {
                         img = Some(image);
                         Ok(())
                     }
-                    Err(error) => panic!(format!("Can't render status text: {}", text)),
+                    Err(error) => { return Err(error) }
                 }
             }).expect("Can't get rendered status text");
             self.status_text_img = img;
@@ -141,9 +140,6 @@ impl State for Space {
                 ), Background::Col(planet.color),
             );
         }
-
-        // user interface
-        let paused = self.paused;
 
         match &self.status_text_img {
             Some(image) => {
@@ -187,6 +183,6 @@ fn integrate(time_step: f32, planets: &Vec<Planet>) -> Vec<Planet> {
 
 fn main() {
     let mut settings: Settings = Default::default();
-    settings.update_rate = 0.1;
-    run::<Space>("Hello World", Vector::new(WIDTH, HEIGHT), settings);
+    settings.update_rate = DEFAULT_UPDATE_RATE;
+    run::<Space>(APP_NAME, Vector::new(WIDTH, HEIGHT), settings);
 }
