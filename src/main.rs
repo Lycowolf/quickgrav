@@ -32,7 +32,9 @@ struct Space {
     paused: bool,
     time_step: f32,
     font: Asset<Font>,
-    status_text_img: Option<Image>, // Text rendering is kind of slow, we cache it here
+    status_text_img: Option<Image>,
+    // Text rendering is kind of slow, we cache it here
+    centered_at: Option<usize>, // Index of planet to center view at, or None for centering on barycenter
 }
 
 impl State for Space {
@@ -50,6 +52,7 @@ impl State for Space {
             time_step: DEFAULT_TIME_STEP,
             font,
             status_text_img: Option::None,
+            centered_at: Option::None,
         }
         )
     }
@@ -116,19 +119,41 @@ impl State for Space {
                     _ => default_space::get_planets(),
                 };
             }
+            Event::Key(Key::C, ButtonState::Pressed) => {
+                status_text_changed = true;
+                self.centered_at = match self.centered_at {
+                    None => Some(0usize),
+                    Some(i) => if i < self.planets.len() - 1 {
+                        Some(i + 1)
+                    } else {
+                        None
+                    }
+                };
+            }
             _ => ()
+        }
+        if self.centered_at.is_some()
+            && self.centered_at.expect("centered_at is Some but expectation failed") >= self.planets.len() {
+            status_text_changed = true;
+            self.centered_at = None;
         }
 
         if status_text_changed || self.status_text_img.is_none() {
             let paused = self.paused;
             let style = FontStyle::new(16.0, Color::WHITE);
+            let centering = match self.centered_at {
+                None => "barycenter".to_string(),
+                Some(i) => format!("planet #{}", i)
+            };
             let text = format!(
-                "Controls: <+ -> change update rate, <space> pause, </ *> change time step, <S> save, <L> load\n\
+                "Controls: <+ -> change update rate, <space> pause, </ *> change time step, <S> save, <L> load, <C> center on planet\n\
                 Sample systems: <F1> default, unstable <F2> stable, with moon <F3> stable in L5 point, <F4> Binary star
                 \n\
+                Centered at: {}\n\
                 Paused: {}\n\
                 Simulation time step: {}\n\
                 Update rate: {} updates/sec",
+                centering,
                 paused,
                 self.time_step,
                 1000.0 / window.update_rate()
@@ -150,10 +175,16 @@ impl State for Space {
     }
 
     fn draw(&mut self, window: &mut Window) -> Result<()> {
-        let barycenter = self.planets.iter()
-            .fold(Vector::new(0, 0), |sum, planet| {sum + planet.position * planet.mass})
-            * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>());
-        let upper_left = barycenter - Vector::new(WIDTH / 2.0, HEIGHT / 2.0);
+        let center = match self.centered_at {
+            Some(i) => {
+                self.planets[i].position
+            }
+            None => // compute system's barycenter
+                self.planets.iter()
+                .fold(Vector::new(0, 0), |sum, planet| { sum + planet.position * planet.mass })
+                * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>()),
+        };
+        let upper_left = center - Vector::new(WIDTH / 2.0, HEIGHT / 2.0);
 
         window.set_view(View::new(Rectangle::new(upper_left, Vector::new(WIDTH, HEIGHT))));
 
