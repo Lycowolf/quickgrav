@@ -2,11 +2,11 @@
 extern crate quicksilver;
 
 use quicksilver::prelude::*;
-use std::ops::Index;
 use quicksilver::graphics::View;
 use serde_derive::*;
 use serde_json::from_slice;
 use quicksilver::saving::{save, load};
+use std::iter::once;
 
 mod default_space;
 
@@ -14,9 +14,9 @@ const WIDTH: f32 = 1200.0;
 const HEIGHT: f32 = 900.0;
 const APP_NAME: &str = "QuickGrav";
 const SAVE_PROFILE: &str = "profile1";
+// misnomers: it's delay between updates
 const DEFAULT_TIME_STEP: f32 = 0.001;
-const DEFAULT_UPDATE_RATE: f64 = 0.01; // misnomer: it's delay between updates
-
+const DEFAULT_UPDATE_RATE: f64 = 0.01;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Planet {
@@ -27,6 +27,12 @@ pub struct Planet {
     color: Color,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Object {
+    Barycenter,
+    Planet(usize)
+}
+
 struct Space {
     planets: Vec<Planet>,
     paused: bool,
@@ -34,7 +40,22 @@ struct Space {
     font: Asset<Font>,
     status_text_img: Option<Image>,
     // Text rendering is kind of slow, we cache it here
-    centered_at: Option<usize>, // Index of planet to center view at, or None for centering on barycenter
+    centered_at: Object,
+    // Index of planet to center view at, or None for centering on barycenter
+    rotate_with: Option<Object>, // The view will rotate so this planet will be at the right
+    clear_screen: bool,
+}
+
+impl Space {
+    fn load_planets(&mut self, filename: &str) -> () {
+        self.planets = match from_slice(load_file(filename).wait().expect(format!("Can't load {}", filename).as_str()).as_slice()) {
+            Ok(planets) => planets,
+            _ => default_space::get_planets(),
+        };
+        self.centered_at = Object::Barycenter;
+        self.rotate_with = None;
+        self.status_text_img = None;
+    }
 }
 
 impl State for Space {
@@ -52,7 +73,9 @@ impl State for Space {
             time_step: DEFAULT_TIME_STEP,
             font,
             status_text_img: Option::None,
-            centered_at: Option::None,
+            centered_at: Object::Barycenter,
+            rotate_with: Option::None,
+            clear_screen: true,
         }
         )
     }
@@ -65,28 +88,30 @@ impl State for Space {
     }
 
     fn event(&mut self, event: &Event, window: &mut Window) -> Result<()> {
-        let mut status_text_changed = false;
-
         match event {
+            Event::Key(Key::Tab, ButtonState::Pressed) => {
+                self.status_text_img = None;
+                self.clear_screen = !self.clear_screen;
+            }
             Event::Key(Key::Space, ButtonState::Pressed) => {
-                status_text_changed = true;
+                self.status_text_img = None;
                 self.paused = !self.paused;
             }
             Event::Key(Key::Multiply, ButtonState::Pressed) => {
-                status_text_changed = true;
+                self.status_text_img = None;
                 self.time_step *= 2.0;
             }
             Event::Key(Key::Divide, ButtonState::Pressed) => {
-                status_text_changed = true;
+                self.status_text_img = None;
                 self.time_step /= 2.0;
             }
             // Add => faster simulation => smaller update rate (update delay)
             Event::Key(Key::Add, ButtonState::Pressed) => {
-                status_text_changed = true;
+                self.status_text_img = None;
                 window.set_update_rate(window.update_rate() / 2.0);
             }
             Event::Key(Key::Subtract, ButtonState::Pressed) => {
-                status_text_changed = true;
+                self.status_text_img = None;
                 window.set_update_rate(window.update_rate() * 2.0);
             }
             Event::Key(Key::S, ButtonState::Pressed) => {
@@ -102,58 +127,70 @@ impl State for Space {
                 self.planets = default_space::get_planets()
             }
             Event::Key(Key::F2, ButtonState::Pressed) => {
-                self.planets = match from_slice(load_file("system1.json").wait().expect("Can't load system 1").as_slice()) {
-                    Ok(planets) => planets,
-                    _ => default_space::get_planets(),
-                };
+                self.load_planets("system1.json");
             }
             Event::Key(Key::F3, ButtonState::Pressed) => {
-                self.planets = match from_slice(load_file("system2.json").wait().expect("Can't load system 2").as_slice()) {
-                    Ok(planets) => planets,
-                    _ => default_space::get_planets(),
-                };
+                self.load_planets("system2.json");
             }
             Event::Key(Key::F4, ButtonState::Pressed) => {
-                self.planets = match from_slice(load_file("system3.json").wait().expect("Can't load system 3").as_slice()) {
-                    Ok(planets) => planets,
-                    _ => default_space::get_planets(),
-                };
+                self.load_planets("system3.json");
             }
             Event::Key(Key::C, ButtonState::Pressed) => {
-                status_text_changed = true;
+                self.status_text_img = None;
                 self.centered_at = match self.centered_at {
-                    None => Some(0usize),
-                    Some(i) => if i < self.planets.len() - 1 {
-                        Some(i + 1)
+                    Object::Barycenter => Object::Planet(0usize),
+                    Object::Planet(i) => if i < self.planets.len() - 1 {
+                        Object::Planet(i + 1)
                     } else {
-                        None
+                        Object::Barycenter
                     }
                 };
             }
+
+            Event::Key(Key::R, ButtonState::Pressed) => {
+                self.status_text_img = None;
+                let some_planets = (0..self.planets.len()).map(|i| {Some(Object::Planet(i))});
+                let mut rotations = once(None).chain(once(Some(Object::Barycenter))).chain(some_planets).cycle();
+                rotations.find(|found| {*found == self.rotate_with});
+                let mut next_rot = rotations.next().expect("cycled iter returned None");
+                if next_rot.is_some() && next_rot.unwrap() == self.centered_at {
+                    next_rot = rotations.next().expect("cycled iter returned None");
+                }
+                self.rotate_with = next_rot;
+            },
             _ => ()
         }
-        if self.centered_at.is_some()
-            && self.centered_at.expect("centered_at is Some but expectation failed") >= self.planets.len() {
-            status_text_changed = true;
-            self.centered_at = None;
-        }
 
-        if status_text_changed || self.status_text_img.is_none() {
+        if self.status_text_img.is_none() {
             let paused = self.paused;
             let style = FontStyle::new(16.0, Color::WHITE);
             let centering = match self.centered_at {
-                None => "barycenter".to_string(),
-                Some(i) => format!("planet #{}", i)
+                Object::Barycenter => "barycenter".to_string(),
+                Object::Planet(i) => format!("planet #{}", i)
+            };
+            let rotation: String = match self.rotate_with {
+                None => "no".to_string(),
+                Some(object) => match object {
+                    Object::Barycenter => "barycenter".to_string(),
+                    Object::Planet(i) => format!("fixing planet #{}", i),
+                }
             };
             let text = format!(
-                "Controls: <+ -> change update rate, <space> pause, </ *> change time step, <S> save, <L> load, <C> center on planet\n\
-                Sample systems: <F1> default, unstable <F2> stable, with moon <F3> stable in L5 point, <F4> Binary star
-                \n\
+                "Controls:\n\
+                <+ -> change update rate, <space> pause\n\
+                </ *> change time step\n\
+                <S> save, <L> load\n\
+                <C> center on planet, <R> rotate with planet\n\
+                <Tab> toggle screen clearing (planets leave trails, messes up text rendering)\n\
+                Sample systems:
+                <F1> default, unstable <F2> stable, with moon <F3> stable in L5 point, <F4> Binary star\n\
                 Centered at: {}\n\
+                Rotation: {}\n\
                 Paused: {}\n\
                 Simulation time step: {}\n\
                 Update rate: {} updates/sec",
                 centering,
+                rotation,
                 paused,
                 self.time_step,
                 1000.0 / window.update_rate()
@@ -175,35 +212,57 @@ impl State for Space {
     }
 
     fn draw(&mut self, window: &mut Window) -> Result<()> {
+        let barycenter = self.planets.iter()
+                    .fold(Vector::new(0, 0), |sum, planet| { sum + planet.position * planet.mass })
+                    * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>());
+
         let center = match self.centered_at {
-            Some(i) => {
+            Object::Planet(i) => {
                 self.planets[i].position
             }
-            None => // compute system's barycenter
-                self.planets.iter()
-                .fold(Vector::new(0, 0), |sum, planet| { sum + planet.position * planet.mass })
-                * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>()),
+            Object::Barycenter => barycenter,
         };
-        let upper_left = center - Vector::new(WIDTH / 2.0, HEIGHT / 2.0);
+        let rotate = match self.rotate_with {
+            None => Transform::IDENTITY,
+            Some(object) => {
+                let target = match object {
+                    Object::Barycenter => barycenter,
+                    Object::Planet(i) => self.planets[i].position,
+                };
+                Transform::rotate(- (target - center).angle()) // negative: cancel the rotation
+            }
+        };
+        let size = Vector::new(WIDTH, HEIGHT);
 
-        window.set_view(View::new(Rectangle::new(upper_left, Vector::new(WIDTH, HEIGHT))));
+        let view_transform = rotate * Transform::translate(-center);
+        let view_rectangle = Rectangle::new(-size / 2.0, size); // centered at (0, 0)
+
+        // NOTE: view takes transform that is applied at every object in the world.
+        // It doesn't transform the view's rectangle
+        window.set_view(View::new_transformed(view_rectangle, view_transform));
 
         // background
-        window.clear(Color::BLACK)?;
+        if self.clear_screen {window.clear(Color::BLACK)?};
 
         // planets
         for planet in &self.planets {
             window.draw(
                 &Circle::new(
                     planet.position,
-                    planet.mass.powf(1.0 / 3.0),
+                    if planet.mass > 1.0 {planet.mass.powf(1.0 / 3.0)} else {1.0},
                 ), Background::Col(planet.color),
             );
         }
 
         match &self.status_text_img {
             Some(image) => {
-                window.draw(&Rectangle::new(upper_left, image.area().size), Img(&image));
+                window.draw_ex(
+                    &Rectangle::new(-image.area().size / 2.0, image.area().size),
+                    Img(&image),
+                    view_transform.inverse() // undo the view's transformation
+                        * Transform::translate((image.area().size / 2.0) - (size / 2.0)), // move it to the top left
+                    1,
+                );
             }
             None => (),
         }
