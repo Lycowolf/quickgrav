@@ -30,7 +30,7 @@ pub struct Planet {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Object {
     Barycenter,
-    Planet(usize)
+    Planet(usize),
 }
 
 struct Space {
@@ -42,7 +42,8 @@ struct Space {
     // Text rendering is kind of slow, we cache it here
     centered_at: Object,
     // Index of planet to center view at, or None for centering on barycenter
-    rotate_with: Option<Object>, // The view will rotate so this planet will be at the right
+    rotate_with: Option<Object>,
+    // The view will rotate so this planet will be at the right
     clear_screen: bool,
 }
 
@@ -55,6 +56,62 @@ impl Space {
         self.centered_at = Object::Barycenter;
         self.rotate_with = None;
         self.status_text_img = None;
+    }
+
+    fn maybe_refresh_status_text(&mut self, window: &Window) -> () {
+        if self.status_text_img.is_none() {
+            let paused = self.paused;
+            let style = FontStyle::new(16.0, Color::WHITE);
+            let centering = match self.centered_at {
+                Object::Barycenter => "barycenter".to_string(),
+                Object::Planet(i) => format!("planet #{}", i)
+            };
+            let rotation: String = match self.rotate_with {
+                None => "no".to_string(),
+                Some(object) => match object {
+                    Object::Barycenter => "barycenter".to_string(),
+                    Object::Planet(i) => format!("fixing planet #{}", i),
+                }
+            };
+            let text = format!(
+                "Controls:\n\
+                ----------\n\
+                <+ -> change update rate, <space> pause\n\
+                </ *> change time step\n\
+                <S> save, <L> load\n\
+                <C> center on planet, <R> rotate with planet\n\
+                <Tab> toggle screen clearing (planets leave trails, messes up text rendering)\n\
+                \n\
+                Sample systems:\n\
+                ---------------\n\
+                <F1> default, unstable\n\
+                <F2> stable, with moon\n\
+                <F3> stable in L5 point\n\
+                <F4> Binary star\n\
+                \n\
+                Centered at: {}\n\
+                Rotation: {}\n\
+                Paused: {}\n\
+                Simulation time step: {}\n\
+                Update rate: {} updates/sec",
+                centering,
+                rotation,
+                paused,
+                self.time_step,
+                1000.0 / window.update_rate()
+            );
+            let mut img: Option<Image> = None;
+            self.font.execute(|font| {
+                match font.render(&text, &style) {
+                    Ok(image) => {
+                        img = Some(image);
+                        Ok(())
+                    }
+                    Err(error) => { return Err(error); }
+                }
+            }).expect("Can't get rendered status text");
+            self.status_text_img = img;
+        }
     }
 }
 
@@ -76,8 +133,7 @@ impl State for Space {
             centered_at: Object::Barycenter,
             rotate_with: Option::None,
             clear_screen: true,
-        }
-        )
+        })
     }
 
     fn update(&mut self, _window: &mut Window) -> Result<()> {
@@ -149,63 +205,16 @@ impl State for Space {
 
             Event::Key(Key::R, ButtonState::Pressed) => {
                 self.status_text_img = None;
-                let some_planets = (0..self.planets.len()).map(|i| {Some(Object::Planet(i))});
+                let some_planets = (0..self.planets.len()).map(|i| { Some(Object::Planet(i)) });
                 let mut rotations = once(None).chain(once(Some(Object::Barycenter))).chain(some_planets).cycle();
-                rotations.find(|found| {*found == self.rotate_with});
+                rotations.find(|found| { *found == self.rotate_with });
                 let mut next_rot = rotations.next().expect("cycled iter returned None");
                 if next_rot.is_some() && next_rot.unwrap() == self.centered_at {
                     next_rot = rotations.next().expect("cycled iter returned None");
                 }
                 self.rotate_with = next_rot;
-            },
+            }
             _ => ()
-        }
-
-        if self.status_text_img.is_none() {
-            let paused = self.paused;
-            let style = FontStyle::new(16.0, Color::WHITE);
-            let centering = match self.centered_at {
-                Object::Barycenter => "barycenter".to_string(),
-                Object::Planet(i) => format!("planet #{}", i)
-            };
-            let rotation: String = match self.rotate_with {
-                None => "no".to_string(),
-                Some(object) => match object {
-                    Object::Barycenter => "barycenter".to_string(),
-                    Object::Planet(i) => format!("fixing planet #{}", i),
-                }
-            };
-            let text = format!(
-                "Controls:\n\
-                <+ -> change update rate, <space> pause\n\
-                </ *> change time step\n\
-                <S> save, <L> load\n\
-                <C> center on planet, <R> rotate with planet\n\
-                <Tab> toggle screen clearing (planets leave trails, messes up text rendering)\n\
-                Sample systems:
-                <F1> default, unstable <F2> stable, with moon <F3> stable in L5 point, <F4> Binary star\n\
-                Centered at: {}\n\
-                Rotation: {}\n\
-                Paused: {}\n\
-                Simulation time step: {}\n\
-                Update rate: {} updates/sec",
-                centering,
-                rotation,
-                paused,
-                self.time_step,
-                1000.0 / window.update_rate()
-            );
-            let mut img: Option<Image> = None;
-            self.font.execute(|font| {
-                match font.render(&text, &style) {
-                    Ok(image) => {
-                        img = Some(image);
-                        Ok(())
-                    }
-                    Err(error) => { return Err(error); }
-                }
-            }).expect("Can't get rendered status text");
-            self.status_text_img = img;
         }
 
         Ok(())
@@ -213,8 +222,8 @@ impl State for Space {
 
     fn draw(&mut self, window: &mut Window) -> Result<()> {
         let barycenter = self.planets.iter()
-                    .fold(Vector::new(0, 0), |sum, planet| { sum + planet.position * planet.mass })
-                    * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>());
+            .fold(Vector::new(0, 0), |sum, planet| { sum + planet.position * planet.mass })
+            * (1.0 / self.planets.iter().map(|p| p.mass).sum::<f32>());
 
         let center = match self.centered_at {
             Object::Planet(i) => {
@@ -229,7 +238,7 @@ impl State for Space {
                     Object::Barycenter => barycenter,
                     Object::Planet(i) => self.planets[i].position,
                 };
-                Transform::rotate(- (target - center).angle()) // negative: cancel the rotation
+                Transform::rotate(-(target - center).angle()) // negative: cancel the rotation
             }
         };
         let size = Vector::new(WIDTH, HEIGHT);
@@ -242,18 +251,19 @@ impl State for Space {
         window.set_view(View::new_transformed(view_rectangle, view_transform));
 
         // background
-        if self.clear_screen {window.clear(Color::BLACK)?};
+        if self.clear_screen { window.clear(Color::BLACK)? };
 
         // planets
         for planet in &self.planets {
             window.draw(
                 &Circle::new(
                     planet.position,
-                    if planet.mass > 1.0 {planet.mass.powf(1.0 / 3.0)} else {1.0},
+                    if planet.mass > 1.0 { planet.mass.powf(1.0 / 3.0) } else { 1.0 },
                 ), Background::Col(planet.color),
             );
         }
 
+        self.maybe_refresh_status_text(&window);
         match &self.status_text_img {
             Some(image) => {
                 window.draw_ex(
@@ -264,7 +274,7 @@ impl State for Space {
                     1,
                 );
             }
-            None => (),
+            None => panic!("Just refreshed status text and there is none"),
         }
 
         Ok(())
