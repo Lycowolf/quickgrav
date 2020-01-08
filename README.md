@@ -3,7 +3,9 @@ Quickgrav
 
 This is a simple personal project to learn basics of Rust and Quicksilver (https://github.com/ryanisaacg/quicksilver/tree/master/examples)
 
-Compile it with cargo.
+You can see Windows releases under releases (duh).
+
+If you want to compile it yourself, use cargo.
 
 License
 -------
